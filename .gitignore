@@ -1,0 +1,16 @@
+# Arquivos de Build/PyInstaller
+build/
+dist/
+*.spec
+
+# Arquivos de Estado e Log
+occurrences_state.json
+monitor.log
+
+# Configurações com senhas (MUITO IMPORTANTE)
+config_ui.json
+config.py
+
+# Cache do Python
+__pycache__/
+*.pyc
