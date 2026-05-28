@@ -1,7 +1,3 @@
-"""
-imap_reader.py - Leitura e marcação de emails via IMAP
-"""
-
 import imaplib
 import logging
 import email as email_lib
@@ -11,7 +7,6 @@ logger = logging.getLogger(__name__)
 
 
 class IMAPReader:
-    """Gerencia conexão IMAP e leitura de emails não lidos."""
 
     def __init__(
         self,
@@ -31,7 +26,6 @@ class IMAPReader:
         self._conn: Optional[imaplib.IMAP4] = None
 
     def connect(self) -> bool:
-        """Abre conexão e autentica."""
         try:
             if self.use_ssl:
                 self._conn = imaplib.IMAP4_SSL(self.host, self.port)
@@ -50,7 +44,6 @@ class IMAPReader:
             return False
 
     def disconnect(self):
-        """Fecha a conexão IMAP."""
         if self._conn:
             try:
                 self._conn.logout()
@@ -59,16 +52,6 @@ class IMAPReader:
             self._conn = None
 
     def fetch_unread(self, subject_keywords: List[str] = None) -> List[Tuple[str, bytes]]:
-        """
-        Busca emails não lidos da caixa configurada.
-
-        Args:
-            subject_keywords: Se fornecida, filtra apenas emails cujo assunto
-                              contenha pelo menos uma das palavras.
-
-        Returns:
-            Lista de (msg_id, raw_bytes)
-        """
         if not self._conn:
             logger.error("Não está conectado ao IMAP.")
             return []
@@ -79,7 +62,6 @@ class IMAPReader:
                 logger.error(f"Não foi possível selecionar a mailbox '{self.mailbox}'")
                 return []
 
-            # Busca mensagens não lidas
             status, data = self._conn.search(None, "UNSEEN")
             if status != "OK" or not data or not data[0]:
                 logger.debug("Nenhuma mensagem não lida encontrada.")
@@ -98,7 +80,6 @@ class IMAPReader:
                     raw_bytes = msg_data[0][1]
                     mid_str = mid.decode() if isinstance(mid, bytes) else str(mid)
 
-                    # Filtragem por assunto (opcional)
                     if subject_keywords:
                         msg_obj = email_lib.message_from_bytes(raw_bytes)
                         subject = str(msg_obj.get("Subject", ""))
@@ -118,7 +99,6 @@ class IMAPReader:
             return []
 
     def mark_as_read(self, msg_id: str):
-        """Marca uma mensagem como lida."""
         if not self._conn:
             return
         try:

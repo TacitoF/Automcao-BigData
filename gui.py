@@ -28,7 +28,7 @@ DEFAULT_CONFIG = {
     "email_from_name": "Monitor de Logs ATI",
     "email_recipients": "",
     "polling_interval": "5",
-    "dedup_window_hours": "720",  # Já deixei o padrão em 30 dias (720h) para você!
+    "dedup_window_hours": "720",
     "min_occurrences": "2",
     "log_subject_keywords": "job de ingestão, falhou",
     "regex_conjunto": r"Conjunto de dados.*?:\s*[^(]+\(([^)]+)\)",
@@ -174,7 +174,6 @@ class MonitorApp(tk.Tk):
     def _field(self, parent, label, key, show=None, width=32):
         row = tk.Frame(parent, bg=DARK["card"])
         row.pack(fill="x", pady=3)
-        # ALTERAÇÃO AQUI: width ajustado para 28 para não cortar os textos!
         tk.Label(row, text=label, width=28, anchor="w",
             font=("Consolas", 9), bg=DARK["card"],
             fg=DARK["text_muted"]).pack(side="left")

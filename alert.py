@@ -88,7 +88,6 @@ def _build_html(conjunto: str, erro: str, ocorrencias: int, window_hours: int, d
 
 
 def _build_plain(conjunto: str, erro: str, ocorrencias: int, window_hours: int) -> str:
-    """Versão texto simples do alerta (fallback)."""
     return (
         f"ALERTA DE ERRO RECORRENTE - Monitor de Logs ATI\n"
         f"{'='*50}\n\n"
@@ -116,10 +115,6 @@ def send_alert(
     use_ssl: bool = False,
     window_hours: int = 24,
 ) -> bool:
-    """
-    Envia email de alerta para todos os destinatários.
-    Retorna True em caso de sucesso, False em caso de erro.
-    """
     subject = f"[ALERTA] Erro recorrente: {conjunto} — {erro[:60]}"
 
     msg = MIMEMultipart("alternative")

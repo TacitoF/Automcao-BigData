@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import subprocess
 import sys
 import os
@@ -17,7 +16,6 @@ def check_pyinstaller():
 
 
 def get_desktop_path():
-    # Tenta encontrar a Área de Trabalho (funciona em Windows PT-BR ou EN)
     desktop = Path.home() / "Desktop"
     if not desktop.exists():
         desktop = Path.home() / "Área de Trabalho"
@@ -57,12 +55,10 @@ def build():
         config_path = "config.py"
 
         if os.path.exists(exe_path):
-            # Configura a pasta na Área de Trabalho
             desktop_dir = get_desktop_path()
             target_folder = desktop_dir / "Monitor_Logs_ATI"
             target_folder.mkdir(parents=True, exist_ok=True)
 
-            # Copia o EXE e o Config para a nova pasta na Área de Trabalho
             shutil.copy(exe_path, target_folder / "monitor_logs_ati.exe")
             
             if os.path.exists(config_path):

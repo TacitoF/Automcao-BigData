@@ -10,16 +10,10 @@ from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Arquivo onde o estado é persistido entre reinicializações
 STATE_FILE = "occurrences_state.json"
 
 
 class OccurrenceTracker:
-    """
-    Rastreia ocorrências de erros por (conjunto, erro).
-    Dispara alerta quando o mesmo par aparece >= MIN_OCCURRENCES vezes
-    dentro da janela de tempo configurada.
-    """
 
     def __init__(
         self,
@@ -31,16 +25,10 @@ class OccurrenceTracker:
         self.min_occurrences = min_occurrences
         self.state_file = state_file
 
-        # Estrutura: { "chave": [ {"ts": "iso", "subject": "...", "msg_id": "..."}, ... ] }
         self._data: Dict[str, List[dict]] = {}
-        # Conjunto de chaves que já geraram alerta (para não re-alertar infinitamente)
         self._alerted: Dict[str, str] = {}  # chave -> timestamp do alerta
 
         self._load_state()
-
-    # ------------------------------------------------------------------
-    # Persistência
-    # ------------------------------------------------------------------
 
     def _load_state(self):
         if os.path.exists(self.state_file):
@@ -62,17 +50,11 @@ class OccurrenceTracker:
         except Exception as e:
             logger.error(f"Erro ao salvar estado: {e}")
 
-    # ------------------------------------------------------------------
-    # Lógica principal
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _make_key(conjunto: str, erro: str) -> str:
-        """Chave normalizada para (conjunto, erro)."""
         return f"{conjunto.strip().lower()}||{erro.strip().lower()}"
 
     def _purge_old_entries(self, key: str):
-        """Remove entradas fora da janela de tempo."""
         if key not in self._data:
             return
         cutoff = datetime.utcnow() - timedelta(hours=self.window_hours)
@@ -82,7 +64,6 @@ class OccurrenceTracker:
         ]
         if not self._data[key]:
             del self._data[key]
-            # Se não há mais ocorrências na janela, reseta o alerta enviado
             if key in self._alerted:
                 alerted_ts = datetime.fromisoformat(self._alerted[key])
                 if alerted_ts < cutoff:
@@ -96,12 +77,6 @@ class OccurrenceTracker:
         subject: str = "",
         msg_id: str = "",
     ) -> Tuple[bool, int]:
-        """
-        Registra uma ocorrência de (conjunto, erro).
-
-        Retorna:
-            (deve_alertar: bool, total_ocorrencias: int)
-        """
         key = self._make_key(conjunto, erro)
         self._purge_old_entries(key)
 
@@ -118,7 +93,6 @@ class OccurrenceTracker:
         total = len(self._data[key])
         logger.info(f"Ocorrência registrada [{total}x] → conjunto='{conjunto}' | erro='{erro}'")
 
-        # Verifica se deve disparar alerta
         deve_alertar = (
             total >= self.min_occurrences
             and key not in self._alerted
@@ -132,13 +106,11 @@ class OccurrenceTracker:
         return deve_alertar, total
 
     def get_occurrences(self, conjunto: str, erro: str) -> List[dict]:
-        """Retorna todas as ocorrências na janela atual para (conjunto, erro)."""
         key = self._make_key(conjunto, erro)
         self._purge_old_entries(key)
         return self._data.get(key, [])
 
     def reset_alert(self, conjunto: str, erro: str):
-        """Reseta manualmente o alerta de um par (conjunto, erro)."""
         key = self._make_key(conjunto, erro)
         if key in self._alerted:
             del self._alerted[key]
@@ -146,7 +118,6 @@ class OccurrenceTracker:
             logger.info(f"Alerta resetado manualmente para: conjunto='{conjunto}' | erro='{erro}'")
 
     def summary(self) -> List[dict]:
-        """Retorna resumo de todos os pares ativos com contagem."""
         result = []
         for key, entries in self._data.items():
             parts = key.split("||", 1)
