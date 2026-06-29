@@ -9,6 +9,8 @@ from email.mime.text import MIMEText
 from datetime import datetime
 from typing import List
 
+from tls_compat import get_legacy_context
+
 logger = logging.getLogger(__name__)
 
 
@@ -114,6 +116,8 @@ def send_alert(
     use_tls: bool = True,
     use_ssl: bool = False,
     window_hours: int = 24,
+    verify_hostname: bool = True,
+    verify_cert: bool = True,
 ) -> bool:
     subject = f"[ALERTA] Erro recorrente: {conjunto} — {erro[:60]}"
 
@@ -130,14 +134,16 @@ def send_alert(
 
     try:
         if use_ssl:
-            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30)
+            context = get_legacy_context(verify_hostname=verify_hostname, verify_cert=verify_cert)
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30, context=context)
         else:
             server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
 
         server.ehlo()
 
         if use_tls and not use_ssl:
-            server.starttls()
+            context = get_legacy_context(verify_hostname=verify_hostname, verify_cert=verify_cert)
+            server.starttls(context=context)
             server.ehlo()
 
         if smtp_username and smtp_password:

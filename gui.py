@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import logging
+import logging.handlers
 from datetime import datetime
 
 
@@ -22,6 +23,8 @@ DEFAULT_CONFIG = {
     "smtp_port": "587",
     "smtp_use_tls": True,
     "smtp_use_ssl": False,
+    "smtp_verify_hostname": True,
+    "smtp_verify_cert": True,
     "smtp_username": "",
     "smtp_password": "",
     "email_from": "",
@@ -92,6 +95,20 @@ class MonitorApp(tk.Tk):
         root_logger.setLevel(logging.DEBUG)
         if not any(isinstance(h, QueueHandler) for h in root_logger.handlers):
             root_logger.addHandler(handler)
+
+        # Também grava em arquivo (monitor.log, com rotação), igual ao modo serviço,
+        # para que o histórico não se perca quando a janela é fechada.
+        if not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root_logger.handlers):
+            try:
+                file_handler = logging.handlers.RotatingFileHandler(
+                    "monitor.log", maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8"
+                )
+                file_handler.setFormatter(
+                    logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+                )
+                root_logger.addHandler(file_handler)
+            except Exception:
+                pass  # se não houver permissão de escrita, segue só com o log em tela
 
     def _load_config(self):
         if os.path.exists(CONFIG_FILE):
@@ -243,6 +260,8 @@ class MonitorApp(tk.Tk):
         self._field(left, "Nome remetente",   "email_from_name")
         self._checkbox(left, "Usar TLS (STARTTLS)", "smtp_use_tls")
         self._checkbox(left, "Usar SSL direto",     "smtp_use_ssl")
+        self._checkbox(left, "Verificar hostname do certificado SMTP\n(desligue só se conectar por IP)", "smtp_verify_hostname")
+        self._checkbox(left, "Verificar validade do certificado SMTP\n(desligue só temporariamente, se o certificado do\nservidor estiver expirado/inválido)", "smtp_verify_cert")
 
         btn_row = tk.Frame(left, bg=DARK["card"])
         btn_row.pack(fill="x", pady=(12, 4))
@@ -363,6 +382,8 @@ SMTP_HOST = "{c["smtp_host"]}"
 SMTP_PORT = {c["smtp_port"]}
 SMTP_USE_TLS = {c["smtp_use_tls"]}
 SMTP_USE_SSL = {c["smtp_use_ssl"]}
+SMTP_VERIFY_HOSTNAME = {c["smtp_verify_hostname"]}
+SMTP_VERIFY_CERT = {c["smtp_verify_cert"]}
 SMTP_USERNAME = "{c["smtp_username"]}"
 SMTP_PASSWORD = "{c["smtp_password"]}"
 EMAIL_FROM = "{c["email_from"]}"
@@ -503,6 +524,8 @@ LOG_LEVEL = "INFO"
                             email_from_name=cfg.EMAIL_FROM_NAME,
                             use_tls=cfg.SMTP_USE_TLS, use_ssl=cfg.SMTP_USE_SSL,
                             window_hours=cfg.DEDUP_WINDOW_HOURS,
+                            verify_hostname=getattr(cfg, "SMTP_VERIFY_HOSTNAME", True),
+                            verify_cert=getattr(cfg, "SMTP_VERIFY_CERT", True),
                         )
                         status = "✅ Enviado" if sucesso else "❌ Falha"
                         self._logger.info(f"Alerta [{status}]: conjunto='{conjunto}' | erro='{erro}'")

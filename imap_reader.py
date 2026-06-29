@@ -1,7 +1,10 @@
 import imaplib
 import logging
 import email as email_lib
+from email import policy as email_policy
 from typing import List, Tuple, Optional
+
+from tls_compat import get_legacy_context
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +31,8 @@ class IMAPReader:
     def connect(self) -> bool:
         try:
             if self.use_ssl:
-                self._conn = imaplib.IMAP4_SSL(self.host, self.port)
+                context = get_legacy_context()
+                self._conn = imaplib.IMAP4_SSL(self.host, self.port, ssl_context=context)
             else:
                 self._conn = imaplib.IMAP4(self.host, self.port)
 
@@ -38,9 +42,11 @@ class IMAPReader:
 
         except imaplib.IMAP4.error as e:
             logger.error(f"Falha ao conectar/autenticar no IMAP: {e}")
+            self._conn = None
             return False
         except Exception as e:
             logger.error(f"Erro inesperado na conexão IMAP: {e}")
+            self._conn = None
             return False
 
     def disconnect(self):
@@ -73,7 +79,7 @@ class IMAPReader:
             results = []
             for mid in msg_ids:
                 try:
-                    status, msg_data = self._conn.fetch(mid, "(RFC822)")
+                    status, msg_data = self._conn.fetch(mid, "(BODY.PEEK[])")
                     if status != "OK" or not msg_data or not msg_data[0]:
                         continue
 
@@ -81,7 +87,7 @@ class IMAPReader:
                     mid_str = mid.decode() if isinstance(mid, bytes) else str(mid)
 
                     if subject_keywords:
-                        msg_obj = email_lib.message_from_bytes(raw_bytes)
+                        msg_obj = email_lib.message_from_bytes(raw_bytes, policy=email_policy.default)
                         subject = str(msg_obj.get("Subject", ""))
                         if not any(kw.lower() in subject.lower() for kw in subject_keywords):
                             logger.debug(f"Email {mid_str} ignorado (assunto não corresponde).")

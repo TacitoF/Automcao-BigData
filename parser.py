@@ -22,6 +22,22 @@ _PATTERNS_CONJUNTO = [
     r"\[([A-Z0-9_\-]{3,})\]",         
 ]
 
+# Sinais de causa raiz ESTÁVEIS (sem números/IDs/timestamps que mudam a cada
+# execução) — checados ANTES dos padrões genéricos abaixo, para que a mesma
+# causa real produza sempre o mesmo texto e seja corretamente reconhecida
+# como recorrente, mesmo dentro de logs gigantes do Pentaho/Kettle onde
+# quase tudo mais (job ID, hora, nomes de arquivo) varia a cada falha.
+_PATTERNS_ERRO_ESTAVEIS = [
+    r"Diret[oó]rio vazio",
+    r"No such file or directory",
+    r"Deadlock found when trying to get lock",
+    r"couldn't convert String to (?:number|date|an? \w+)",
+    r"Unexpected conversion error while converting value",
+    r"Unable to write log record to log table\s*\[\w+\]",
+    r"Connection (?:refused|timed out|reset)",
+    r"\b([A-Za-z][A-Za-z0-9]*(?:Exception|Error))\b",
+]
+
 _PATTERNS_ERRO = [
     r"[Ee]rro[:\s]+([^\n\r]+)",
     r"[Ee]rror[:\s]+([^\n\r]+)",
@@ -98,7 +114,8 @@ def extract_conjunto_and_erro(
         conjunto = subject.strip() or "Desconhecido"
 
     erro = None
-    if regex_erro:
+    erro = _apply_pattern(full_text, _PATTERNS_ERRO_ESTAVEIS)
+    if not erro and regex_erro:
         m = re.search(regex_erro, full_text)
         if m:
             erro = m.group(1).strip() if m.groups() else m.group(0).strip()
