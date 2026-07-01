@@ -147,7 +147,22 @@ def send_alert(
             server.ehlo()
 
         if smtp_username and smtp_password:
-            server.login(smtp_username, smtp_password)
+            server.user, server.password = smtp_username, smtp_password
+            try:
+                # Por padrão, o smtplib envia o usuário já embutido no
+                # próprio comando AUTH LOGIN ("initial response"), em uma
+                # única linha. Esse atalho não faz parte do mecanismo
+                # LOGIN original e muitos servidores SASL (comum em
+                # Dovecot) o rejeitam, mesmo com credenciais corretas.
+                # initial_response_ok=False força o diálogo clássico em
+                # 3 passos: AUTH LOGIN -> usuário -> senha, cada um numa
+                # resposta separada — o mesmo fluxo que Outlook e o
+                # .NET (Send-MailMessage) usam por padrão.
+                server.auth("LOGIN", server.auth_login, initial_response_ok=False)
+            except smtplib.SMTPAuthenticationError:
+                # Fallback: deixa o smtplib escolher o mecanismo, ainda
+                # sem o atalho de initial response.
+                server.login(smtp_username, smtp_password, initial_response_ok=False)
 
         server.sendmail(email_from, recipients, msg.as_string())
         server.quit()
@@ -155,8 +170,12 @@ def send_alert(
         logger.info(f"Alerta enviado para: {recipients}")
         return True
 
-    except smtplib.SMTPAuthenticationError:
-        logger.error("Falha de autenticação SMTP — verifique usuário e senha.")
+    except smtplib.SMTPAuthenticationError as e:
+        smtp_error = e.smtp_error.decode("utf-8", errors="replace") if isinstance(e.smtp_error, bytes) else str(e.smtp_error)
+        logger.error(
+            f"Falha de autenticação SMTP — verifique usuário e senha. "
+            f"Resposta do servidor: [{e.smtp_code}] {smtp_error}"
+        )
     except smtplib.SMTPConnectError:
         logger.error(f"Não foi possível conectar ao SMTP {smtp_host}:{smtp_port}")
     except smtplib.SMTPException as e:
