@@ -181,12 +181,14 @@ def main():
     tracker = OccurrenceTracker(
         window_hours=int(cfg.DEDUP_WINDOW_HOURS),
         min_occurrences=int(cfg.MIN_OCCURRENCES_TO_ALERT),
+        cleanup_interval_days=int(getattr(cfg, "STATE_CLEANUP_INTERVAL_DAYS", 30)),
     )
 
     falhas_consecutivas = 0
 
     while not _stop_requested:
         try:
+            tracker.run_maintenance()
             run_cycle(cfg, tracker, logger)
             falhas_consecutivas = 0
         except Exception as e:
