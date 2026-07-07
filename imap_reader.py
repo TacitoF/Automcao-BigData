@@ -2,6 +2,7 @@ import imaplib
 import json
 import logging
 import os
+import time
 import email as email_lib
 from email import policy as email_policy
 from typing import List, Tuple, Optional, Set
@@ -24,6 +25,8 @@ class IMAPReader:
         use_ssl: bool = True,
         mailbox: str = "INBOX",
         skipped_state_file: str = SKIPPED_STATE_FILE,
+        connect_max_retries: int = 3,
+        connect_retry_delay_seconds: int = 10,
     ):
         self.host = host
         self.port = port
@@ -32,6 +35,16 @@ class IMAPReader:
         self.use_ssl = use_ssl
         self.mailbox = mailbox
         self._conn: Optional[imaplib.IMAP4] = None
+
+        # Quantas vezes tentar reconectar (dentro do MESMO ciclo) antes de
+        # desistir, e quantos segundos esperar entre uma tentativa e outra.
+        # Existe porque bloqueios intermitentes de antivírus/EDR (ex.:
+        # WinError 10013 no Windows) costumam liberar a conexão sozinhos
+        # após poucos segundos - sem isso, uma falha assim faz perder o
+        # ciclo inteiro e esperar os próximos minutos (POLLING_INTERVAL)
+        # até tentar de novo.
+        self.connect_max_retries = connect_max_retries
+        self.connect_retry_delay_seconds = connect_retry_delay_seconds
 
         # Guarda quais emails (por Message-ID) já tiveram o assunto logado
         # ao serem ignorados por não corresponder ao LOG_SUBJECT_KEYWORDS.
@@ -81,6 +94,43 @@ class IMAPReader:
             logger.error(f"Erro inesperado na conexão IMAP: {e}")
             self._conn = None
             return False
+
+    def connect_with_retry(
+        self,
+        max_retries: Optional[int] = None,
+        retry_delay_seconds: Optional[int] = None,
+    ) -> bool:
+        """Tenta conectar múltiplas vezes com uma pequena pausa entre
+        tentativas, dentro do MESMO ciclo de verificação.
+
+        Motivo: bloqueios intermitentes de antivírus/EDR na camada de
+        socket (ex.: WinError 10013 no Windows) costumam se resolver
+        sozinhos após alguns segundos. Sem o retry, uma falha assim faz
+        perder o ciclo inteiro e só tentar de novo no próximo
+        POLLING_INTERVAL_MINUTES (minutos depois). Com o retry, aumenta
+        bastante a chance de "furar" esse bloqueio momentâneo ainda
+        dentro do ciclo atual.
+        """
+        max_retries = max_retries if max_retries is not None else self.connect_max_retries
+        retry_delay_seconds = (
+            retry_delay_seconds if retry_delay_seconds is not None else self.connect_retry_delay_seconds
+        )
+
+        for tentativa in range(1, max_retries + 1):
+            if self.connect():
+                if tentativa > 1:
+                    logger.info(f"Conectado ao IMAP na tentativa {tentativa}/{max_retries}.")
+                return True
+
+            if tentativa < max_retries:
+                logger.warning(
+                    f"Falha ao conectar ao IMAP (tentativa {tentativa}/{max_retries}). "
+                    f"Tentando novamente em {retry_delay_seconds}s..."
+                )
+                time.sleep(retry_delay_seconds)
+
+        logger.error(f"Falha ao conectar ao IMAP após {max_retries} tentativa(s) neste ciclo.")
+        return False
 
     def disconnect(self):
         if self._conn:
@@ -177,7 +227,7 @@ class IMAPReader:
             logger.warning(f"Não foi possível marcar email {msg_id} como lido: {e}")
 
     def __enter__(self):
-        self.connect()
+        self.connect_with_retry()
         return self
 
     def __exit__(self, *args):

@@ -85,6 +85,8 @@ def run_cycle(cfg, tracker, logger):
         host=cfg.IMAP_HOST, port=cfg.IMAP_PORT,
         username=cfg.IMAP_USERNAME, password=cfg.IMAP_PASSWORD,
         use_ssl=cfg.IMAP_USE_SSL, mailbox=cfg.IMAP_MAILBOX,
+        connect_max_retries=int(getattr(cfg, "IMAP_CONNECT_MAX_RETRIES", 3)),
+        connect_retry_delay_seconds=int(getattr(cfg, "IMAP_CONNECT_RETRY_DELAY_SECONDS", 10)),
     ) as reader:
         if not reader._conn:
             logger.error("Falha na conexão IMAP. Pulando ciclo.")
