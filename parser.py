@@ -13,6 +13,14 @@ logger = logging.getLogger(__name__)
 
 
 _PATTERNS_CONJUNTO = [
+    # Template dos emails "[Produção] [Alerta] Problema no job de ingestão"
+    # (equipe bigdata): "Conjunto de dados que precisaria ser processado:
+    # <hash_do_mongo>(<nome_real_do_conjunto>)". Checado ANTES do padrão
+    # genérico "Conjunto:" abaixo, pois esse é bem mais específico — sem
+    # essa prioridade, o padrão genérico captura tudo até a primeira
+    # vírgula, incluindo o hash, o "Error:" e o timestamp que vêm na
+    # sequência (que mudam a cada execução e quebrariam a deduplicação).
+    r"processad[oa]s?:?\s*[0-9a-fA-F]{8,}\s*\(([^)]+)\)",
     r"[Cc]onjunto[:\s]+([^\n\r,;]+)",
     r"[Ss]et[:\s]+([^\n\r,;]+)",
     r"[Gg]roup[:\s]+([^\n\r,;]+)",
@@ -35,8 +43,23 @@ _PATTERNS_ERRO_ESTAVEIS = [
     r"Unexpected conversion error while converting value",
     r"Unable to write log record to log table\s*\[\w+\]",
     r"Connection (?:refused|timed out|reset)",
+    r"[Ss]ocket hang up",
     r"\b([A-Za-z][A-Za-z0-9]*(?:Exception|Error))\b",
 ]
+
+# Template dos emails "job de ingestão" (equipe bigdata): depois de
+# "[object Object] |" vem o motivo real da falha, seguido de
+# "| undefined | undefined". Esse trecho tem dois formatos:
+#   - curto:  "... | Diretório vazio | undefined | undefined"
+#   - longo:  "... | 2026/07/07 02:06:01 - <dump gigante do Pentaho/Kettle,
+#              com milhares de linhas de log> | undefined | undefined"
+# Isso é checado ANTES de tudo (inclusive antes de _PATTERNS_ERRO_ESTAVEIS
+# isoladas), pois é o formato mais específico e confiável quando o email
+# é desse sistema. Quando o trecho capturado é curto, ele já é o próprio
+# erro. Quando é o dump gigante, procura-se a causa raiz estável dentro
+# dele usando os mesmos padrões de _PATTERNS_ERRO_ESTAVEIS.
+_PATTERN_INGESTAO_BLOCO_ERRO = r"\[object Object\]\s*\|\s*(.*?)\s*\|\s*undefined\s*\|\s*undefined"
+_INGESTAO_BLOCO_MAX_LEN = 150  # acima disso, tratamos como dump de log e não como erro em si
 
 _PATTERNS_ERRO = [
     r"[Ee]rro[:\s]+([^\n\r]+)",
@@ -104,30 +127,93 @@ def extract_conjunto_and_erro(
     full_text = f"{subject}\n{body}"
 
     conjunto = None
+    conjunto_fonte = None
     if regex_conjunto:
         m = re.search(regex_conjunto, full_text)
         if m:
             conjunto = m.group(1).strip() if m.groups() else m.group(0).strip()
+            conjunto_fonte = "regex_conjunto (config.py)"
     if not conjunto:
         conjunto = _apply_pattern(full_text, _PATTERNS_CONJUNTO)
+        if conjunto:
+            conjunto_fonte = "padrão conhecido"
     if not conjunto:
         conjunto = subject.strip() or "Desconhecido"
+        conjunto_fonte = "fallback (assunto do email)"
 
     erro = None
-    erro = _apply_pattern(full_text, _PATTERNS_ERRO_ESTAVEIS)
+    erro_fonte = None
+
+    # 1) Template "job de ingestão": extrai o bloco entre "[object Object] |"
+    # e "| undefined | undefined".
+    m = re.search(_PATTERN_INGESTAO_BLOCO_ERRO, full_text, re.DOTALL)
+    if m:
+        bloco = m.group(1).strip()
+        bloco = re.sub(r"^[Ee]rro:?\s*", "", bloco)   # remove "Error:"/"Erro:" redundante no início
+        bloco = re.sub(r"^[Ee]rror:?\s*", "", bloco)
+        if bloco and len(bloco) <= _INGESTAO_BLOCO_MAX_LEN:
+            # Bloco curto: já é o próprio erro (ex.: "Diretório vazio", "socket hang up")
+            erro = bloco
+            erro_fonte = "template job de ingestão (bloco curto)"
+        else:
+            # Bloco longo (dump do Pentaho/Kettle): procura a causa raiz estável lá dentro
+            erro = _apply_pattern(bloco, _PATTERNS_ERRO_ESTAVEIS)
+            if erro:
+                erro_fonte = "template job de ingestão (causa raiz no dump)"
+
+    # 2) Padrões estáveis genéricos (para emails que não seguem o template acima)
+    if not erro:
+        erro = _apply_pattern(full_text, _PATTERNS_ERRO_ESTAVEIS)
+        if erro:
+            erro_fonte = "padrão estável genérico"
+
+    # 3) Regex customizada do config.py
     if not erro and regex_erro:
         m = re.search(regex_erro, full_text)
         if m:
             erro = m.group(1).strip() if m.groups() else m.group(0).strip()
+            erro_fonte = "regex_erro (config.py)"
+
+    # 4) Padrões genéricos antigos — menos confiáveis (podem capturar texto
+    # longo demais em formatos de email não vistos antes); vale logar.
     if not erro:
         erro = _apply_pattern(full_text, _PATTERNS_ERRO)
+        if erro:
+            erro_fonte = "padrão genérico (baixa confiança)"
+
     if not erro:
         erro = "Erro não identificado"
+        erro_fonte = "fallback (não identificado)"
 
     conjunto = " ".join(conjunto.split()) if conjunto else conjunto
     erro = " ".join(erro.split()) if erro else erro
 
-    logger.debug(f"Parsed → conjunto='{conjunto}' | erro='{erro}'")
+    # Trava de segurança: mesmo com todos os padrões acima, um formato de
+    # email totalmente novo e desconhecido poderia fazer um padrão genérico
+    # (_PATTERNS_ERRO) capturar texto até o fim do corpo. Corta bem acima do
+    # necessário para qualquer erro real, só para nunca deixar a chave de
+    # deduplicação (conjunto+erro) virar um texto absurdamente longo.
+    if erro and len(erro) > 300:
+        erro = erro[:300].rstrip() + "..."
+
+    # Alerta no log (monitor.log) sempre que a extração não teve confiança
+    # alta - ou seja, caiu no padrão genérico antigo ou não identificou nada.
+    # Isso permite localizar depois, no log, quais emails tiveram um formato
+    # que os padrões atuais não reconhecem bem, para ajustar o parser.py.
+    if erro_fonte in ("padrão genérico (baixa confiança)", "fallback (não identificado)"):
+        snippet = body.strip()[:200].replace("\n", " ")
+        logger.warning(
+            f"Erro extraído com baixa confiança ({erro_fonte}) — revisar parser.py. "
+            f"Assunto: '{subject.strip()}' | erro extraído: '{erro}' | início do corpo: '{snippet}...'"
+        )
+    if conjunto_fonte == "fallback (assunto do email)":
+        snippet = body.strip()[:200].replace("\n", " ")
+        logger.warning(
+            f"Conjunto não identificado por nenhum padrão — usando assunto como fallback. "
+            f"Revisar parser.py. Assunto: '{subject.strip()}' | início do corpo: '{snippet}...'"
+        )
+
+    logger.debug(f"Parsed → conjunto='{conjunto}' ({conjunto_fonte}) | erro='{erro}' ({erro_fonte})")
     return conjunto, erro
 
 

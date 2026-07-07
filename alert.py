@@ -43,7 +43,7 @@ def _build_html(conjunto: str, erro: str, ocorrencias: int, window_hours: int, d
 
     <!-- Cabeçalho -->
     <div style="background:#c0392b;padding:20px 30px;">
-      <h1 style="color:#fff;margin:0;font-size:20px;">⚠️ Alerta de Erro Recorrente</h1>
+      <h1 style="color:#fff;margin:0;font-size:20px;">Alerta de Erro Recorrente</h1>
       <p style="color:#f5b7b1;margin:5px 0 0;">Monitor de Logs - ATI</p>
     </div>
 
@@ -53,21 +53,21 @@ def _build_html(conjunto: str, erro: str, ocorrencias: int, window_hours: int, d
 
       <table style="width:100%;border-collapse:collapse;margin:20px 0;">
         <tr>
-          <td style="padding:12px;background:#fdecea;border-left:4px solid #c0392b;width:40%;font-weight:bold;color:#333;">📦 Conjunto</td>
+          <td style="padding:12px;background:#fdecea;border-left:4px solid #c0392b;width:40%;font-weight:bold;color:#333;">Conjunto</td>
           <td style="padding:12px;background:#fdecea;color:#c0392b;font-size:16px;font-weight:bold;">{conjunto}</td>
         </tr>
         <tr>
-          <td style="padding:12px;background:#fff5f5;border-left:4px solid #c0392b;font-weight:bold;color:#333;">❌ Erro</td>
+          <td style="padding:12px;background:#fff5f5;border-left:4px solid #c0392b;font-weight:bold;color:#333;">Erro</td>
           <td style="padding:12px;background:#fff5f5;color:#c0392b;font-size:16px;font-weight:bold;">{erro}</td>
         </tr>
         <tr>
-          <td style="padding:12px;background:#fdecea;border-left:4px solid #c0392b;font-weight:bold;color:#333;">🔁 Ocorrências</td>
+          <td style="padding:12px;background:#fdecea;border-left:4px solid #c0392b;font-weight:bold;color:#333;">Ocorrências</td>
           <td style="padding:12px;background:#fdecea;color:#333;">{ocorrencias}x nas últimas {window_hours}h</td>
         </tr>
       </table>
 
       <!-- Detalhes das ocorrências -->
-      <h3 style="color:#333;border-bottom:2px solid #eee;padding-bottom:8px;">📋 Histórico de Ocorrências</h3>
+      <h3 style="color:#333;border-bottom:2px solid #eee;padding-bottom:8px;">Histórico de Ocorrências</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
           <tr style="background:#c0392b;color:#fff;">
