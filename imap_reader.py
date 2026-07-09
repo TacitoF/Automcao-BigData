@@ -27,6 +27,7 @@ class IMAPReader:
         skipped_state_file: str = SKIPPED_STATE_FILE,
         connect_max_retries: int = 3,
         connect_retry_delay_seconds: int = 10,
+        exclude_from: Optional[List[str]] = None,
     ):
         self.host = host
         self.port = port
@@ -35,6 +36,16 @@ class IMAPReader:
         self.use_ssl = use_ssl
         self.mailbox = mailbox
         self._conn: Optional[imaplib.IMAP4] = None
+
+        # Remetentes a ignorar mesmo que o assunto bata com
+        # LOG_SUBJECT_KEYWORDS. Existe porque a própria automação envia
+        # alertas com "ALERTA" no assunto - se a caixa monitorada é a
+        # mesma que recebe os alertas (ex.: caixa pessoal do responsável
+        # também está em EMAIL_RECIPIENTS), o e-mail de alerta acaba
+        # batendo com a keyword "alerta" e sendo processado/marcado como
+        # lido como se fosse um log de erro original, escondendo-o na
+        # caixa antes que a pessoa perceba que o alerta chegou.
+        self.exclude_from = [addr.lower() for addr in (exclude_from or [])]
 
         # Quantas vezes tentar reconectar (dentro do MESMO ciclo) antes de
         # desistir, e quantos segundos esperar entre uma tentativa e outra.
@@ -178,16 +189,28 @@ class IMAPReader:
                     raw_bytes = msg_data[0][1]
                     mid_str = mid.decode() if isinstance(mid, bytes) else str(mid)
 
-                    if subject_keywords:
+                    if subject_keywords or self.exclude_from:
                         msg_obj = email_lib.message_from_bytes(raw_bytes, policy=email_policy.default)
                         subject = str(msg_obj.get("Subject", ""))
+                        from_header = str(msg_obj.get("From", "")).lower()
                         message_id = str(msg_obj.get("Message-ID", "")) or f"seq:{mid_str}"
                         still_unread_keys.add(message_id)
 
-                        if not any(kw.lower() in subject.lower() for kw in subject_keywords):
+                        is_self_alert = any(addr in from_header for addr in self.exclude_from)
+
+                        subject_matches = (
+                            any(kw.lower() in subject.lower() for kw in subject_keywords)
+                            if subject_keywords else True
+                        )
+
+                        if is_self_alert or not subject_matches:
                             if message_id not in self._skipped_logged:
+                                motivo = (
+                                    f"remetente ignorado ('{from_header}')" if is_self_alert
+                                    else "assunto não corresponde"
+                                )
                                 logger.debug(
-                                    f"Email {mid_str} ignorado (assunto não corresponde): '{subject}'"
+                                    f"Email {mid_str} ignorado ({motivo}): '{subject}'"
                                 )
                                 self._skipped_logged.add(message_id)
                             # Se já logado antes, fica em silêncio - continua
@@ -201,7 +224,7 @@ class IMAPReader:
 
             # Poda: remove do estado qualquer Message-ID que não está mais
             # entre os não lidos atuais (ex.: usuário leu manualmente).
-            if subject_keywords:
+            if subject_keywords or self.exclude_from:
                 before = len(self._skipped_logged)
                 self._skipped_logged &= still_unread_keys
                 if len(self._skipped_logged) != before:
