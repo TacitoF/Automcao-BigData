@@ -126,6 +126,15 @@ def send_alert(
     msg["From"] = f"{email_from_name} <{email_from}>"
     msg["To"] = ", ".join(recipients)
 
+    # Marca este email como gerado pela própria automação através de um
+    # header customizado (não visível ao usuário final). Isso é usado pelo
+    # imap_reader.py para nunca reprocessar o próprio alerta como se fosse
+    # um novo erro - de forma independente do header "From", que alguns
+    # servidores SMTP (comum em ambientes corporativos/governamentais)
+    # reescrevem para bater com o usuário autenticado no envio, o que
+    # quebraria uma exclusão baseada apenas em IMAP_EXCLUDE_FROM.
+    msg["X-Monitor-ATI-Alert"] = "1"
+
     plain = _build_plain(conjunto, erro, ocorrencias, window_hours)
     html = _build_html(conjunto, erro, ocorrencias, window_hours, detalhes)
 

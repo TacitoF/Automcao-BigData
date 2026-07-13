@@ -196,7 +196,23 @@ class IMAPReader:
                         message_id = str(msg_obj.get("Message-ID", "")) or f"seq:{mid_str}"
                         still_unread_keys.add(message_id)
 
-                        is_self_alert = any(addr in from_header for addr in self.exclude_from)
+                        # Verificação PRIMÁRIA e mais confiável: o header
+                        # customizado X-Monitor-ATI-Alert, gravado pelo
+                        # próprio alert.py em todo email de alerta que ele
+                        # envia. Diferente do "From", esse header nunca é
+                        # reescrito por servidores SMTP corporativos que
+                        # forçam o From a bater com o usuário autenticado
+                        # no envio - o que antes fazia o próprio alerta
+                        # escapar da exclusão baseada só em IMAP_EXCLUDE_FROM
+                        # e ser lido de volta como se fosse um novo erro.
+                        is_self_alert = bool(msg_obj.get("X-Monitor-ATI-Alert"))
+
+                        # Verificação SECUNDÁRIA (compatibilidade / defesa
+                        # em profundidade): mantém a checagem por From, útil
+                        # caso o header customizado seja removido por algum
+                        # gateway de email no meio do caminho.
+                        if not is_self_alert:
+                            is_self_alert = any(addr in from_header for addr in self.exclude_from)
 
                         subject_matches = (
                             any(kw.lower() in subject.lower() for kw in subject_keywords)
@@ -205,10 +221,12 @@ class IMAPReader:
 
                         if is_self_alert or not subject_matches:
                             if message_id not in self._skipped_logged:
-                                motivo = (
-                                    f"remetente ignorado ('{from_header}')" if is_self_alert
-                                    else "assunto não corresponde"
-                                )
+                                if msg_obj.get("X-Monitor-ATI-Alert"):
+                                    motivo = "auto-alerta da própria automação (header X-Monitor-ATI-Alert)"
+                                elif is_self_alert:
+                                    motivo = f"remetente ignorado ('{from_header}')"
+                                else:
+                                    motivo = "assunto não corresponde"
                                 logger.debug(
                                     f"Email {mid_str} ignorado ({motivo}): '{subject}'"
                                 )
