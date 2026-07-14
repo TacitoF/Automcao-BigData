@@ -482,6 +482,7 @@ LOG_LEVEL = "INFO"
             username=cfg.IMAP_USERNAME, password=cfg.IMAP_PASSWORD,
             use_ssl=cfg.IMAP_USE_SSL, mailbox=cfg.IMAP_MAILBOX,
             exclude_from=getattr(cfg, "IMAP_EXCLUDE_FROM", None),
+            exclude_subject_keywords=getattr(cfg, "IMAP_EXCLUDE_SUBJECT_KEYWORDS", None),
         ) as reader:
             if not reader._conn:
                 self._logger.error("Falha na conexão IMAP. Pulando ciclo.")

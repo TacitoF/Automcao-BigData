@@ -28,6 +28,7 @@ class IMAPReader:
         connect_max_retries: int = 3,
         connect_retry_delay_seconds: int = 10,
         exclude_from: Optional[List[str]] = None,
+        exclude_subject_keywords: Optional[List[str]] = None,
     ):
         self.host = host
         self.port = port
@@ -46,6 +47,17 @@ class IMAPReader:
         # lido como se fosse um log de erro original, escondendo-o na
         # caixa antes que a pessoa perceba que o alerta chegou.
         self.exclude_from = [addr.lower() for addr in (exclude_from or [])]
+
+        # Palavras-chave de ASSUNTO que, se presentes, fazem o email ser
+        # ignorado mesmo que corresponda a LOG_SUBJECT_KEYWORDS. Existe
+        # porque o mesmo remetente (ex.: bigdata@ati.pe.gov.br) dispara o
+        # mesmo template de email tanto para o ambiente de Homologação
+        # quanto para o de Produção - diferenciados apenas por um prefixo
+        # no assunto, como "[Homologação] [Alerta] ..." vs
+        # "[Produção] [Alerta] ...". Sem esse filtro, a automação também
+        # processa e alerta sobre erros que só ocorreram em homologação,
+        # que não interessam ao monitoramento de produção.
+        self.exclude_subject_keywords = [kw.lower() for kw in (exclude_subject_keywords or [])]
 
         # Quantas vezes tentar reconectar (dentro do MESMO ciclo) antes de
         # desistir, e quantos segundos esperar entre uma tentativa e outra.
@@ -189,7 +201,7 @@ class IMAPReader:
                     raw_bytes = msg_data[0][1]
                     mid_str = mid.decode() if isinstance(mid, bytes) else str(mid)
 
-                    if subject_keywords or self.exclude_from:
+                    if subject_keywords or self.exclude_from or self.exclude_subject_keywords:
                         msg_obj = email_lib.message_from_bytes(raw_bytes, policy=email_policy.default)
                         subject = str(msg_obj.get("Subject", ""))
                         from_header = str(msg_obj.get("From", "")).lower()
@@ -219,12 +231,21 @@ class IMAPReader:
                             if subject_keywords else True
                         )
 
-                        if is_self_alert or not subject_matches:
+                        # Assunto contém alguma palavra-chave de exclusão
+                        # (ex.: "homologação")? Se sim, o email é ignorado
+                        # independentemente de bater com LOG_SUBJECT_KEYWORDS.
+                        subject_excluded = any(
+                            kw in subject.lower() for kw in self.exclude_subject_keywords
+                        )
+
+                        if is_self_alert or not subject_matches or subject_excluded:
                             if message_id not in self._skipped_logged:
                                 if msg_obj.get("X-Monitor-ATI-Alert"):
                                     motivo = "auto-alerta da própria automação (header X-Monitor-ATI-Alert)"
                                 elif is_self_alert:
                                     motivo = f"remetente ignorado ('{from_header}')"
+                                elif subject_excluded:
+                                    motivo = "assunto contém palavra-chave excluída (ex.: homologação)"
                                 else:
                                     motivo = "assunto não corresponde"
                                 logger.debug(
@@ -242,7 +263,7 @@ class IMAPReader:
 
             # Poda: remove do estado qualquer Message-ID que não está mais
             # entre os não lidos atuais (ex.: usuário leu manualmente).
-            if subject_keywords or self.exclude_from:
+            if subject_keywords or self.exclude_from or self.exclude_subject_keywords:
                 before = len(self._skipped_logged)
                 self._skipped_logged &= still_unread_keys
                 if len(self._skipped_logged) != before:
