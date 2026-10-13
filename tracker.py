@@ -91,15 +91,16 @@ class OccurrenceTracker:
         key = self._make_key(conjunto, erro)
         self._purge_old_entries(key)
 
-        entry = {
-            "ts": datetime.utcnow().isoformat(),
-            "subject": subject,
-            "msg_id": msg_id,
-        }
-
         if key not in self._data:
             self._data[key] = []
-        self._data[key].append(entry)
+        # Uma mensagem pendente volta como não lida no próximo ciclo.
+        # Seu Message-ID não pode incrementar a contagem a cada tentativa.
+        if not msg_id or not any(e.get("msg_id") == msg_id for e in self._data[key]):
+            self._data[key].append({
+                "ts": datetime.utcnow().isoformat(),
+                "subject": subject,
+                "msg_id": msg_id,
+            })
 
         total = len(self._data[key])
         logger.info(f"Ocorrência registrada [{total}x] → conjunto='{conjunto}' | erro='{erro}'")
@@ -128,15 +129,15 @@ class OccurrenceTracker:
 
         deve_alertar = contagem_para_alerta >= self.min_occurrences
 
-        if deve_alertar:
-            self._alerted[key] = datetime.utcnow().isoformat()
-            logger.warning(
-                f"ALERTA DISPARADO → conjunto='{conjunto}' | erro='{erro}' | "
-                f"ocorrências totais na janela={total} | novas desde último alerta={contagem_para_alerta}"
-            )
-
         self._save_state()
         return deve_alertar, total
+
+    def mark_alert_sent(self, conjunto: str, erro: str):
+        """Confirma o alerta somente depois que o SMTP aceitou o envio."""
+        key = self._make_key(conjunto, erro)
+        self._alerted[key] = datetime.utcnow().isoformat()
+        self._save_state()
+        logger.info(f"Alerta confirmado: conjunto='{conjunto}' | erro='{erro}'")
 
     def get_occurrences(self, conjunto: str, erro: str) -> List[dict]:
         key = self._make_key(conjunto, erro)
