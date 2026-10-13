@@ -9,34 +9,12 @@ import logging
 import logging.handlers
 from datetime import datetime
 
+from configuration import DEFAULT_CONFIG, build_config_content
+
 
 CONFIG_FILE = "config_ui.json"
 
-DEFAULT_CONFIG = {
-    "imap_host": "sogo.ati.gov.br",
-    "imap_port": "993",
-    "imap_use_ssl": True,
-    "imap_username": "",
-    "imap_password": "",
-    "imap_mailbox": "INBOX",
-    "smtp_host": "sogo.ati.gov.br",
-    "smtp_port": "587",
-    "smtp_use_tls": True,
-    "smtp_use_ssl": False,
-    "smtp_verify_hostname": True,
-    "smtp_verify_cert": True,
-    "smtp_username": "",
-    "smtp_password": "",
-    "email_from": "",
-    "email_from_name": "Monitor de Logs ATI",
-    "email_recipients": "",
-    "polling_interval": "5",
-    "dedup_window_hours": "720",
-    "min_occurrences": "2",
-    "log_subject_keywords": "job de ingestão, falhou",
-    "regex_conjunto": r"Conjunto de dados.*?:\s*[^(]+\(([^)]+)\)",
-    "regex_erro": r"Error:.*?(?:\s*\|\s*)([A-Za-zÀ-ÖØ-öø-ÿ ]+)",
-}
+
 
 DARK = {
     "bg":        "#0f1117",
@@ -286,6 +264,30 @@ class MonitorApp(tk.Tk):
         self._recipients_box.bind("<FocusOut>",
             lambda e: self._config.update({"email_recipients": self._recipients_box.get("1.0", "end-1c")}))
 
+        self._section_label(right, "🗄  Banco de Controladores")
+        self._checkbox(right, "Buscar destinatários pelo conjunto no banco", "controller_db_enabled")
+        self._field(right, "Variável de ambiente da URL", "controller_db_url_env", width=28)
+        tk.Label(right, text="Consulta SQL (:conjunto; email na primeira coluna):",
+            font=("Consolas", 9), bg=DARK["card"], fg=DARK["text_muted"],
+            anchor="w").pack(fill="x", pady=(6, 0))
+        self._controller_query_box = tk.Text(right, height=5, width=36,
+            font=("Consolas", 9), bg=DARK["input_bg"], fg=DARK["text"],
+            insertbackground=DARK["text"], relief="flat", bd=4)
+        self._controller_query_box.insert("1.0", self._config["controller_db_query"])
+        self._controller_query_box.pack(fill="x", pady=(2, 6))
+        self._controller_query_box.bind("<FocusOut>",
+            lambda e: self._config.update({"controller_db_query": self._controller_query_box.get("1.0", "end-1c")}))
+        self._field(right, "Opções de conexão (JSON)", "controller_db_connect_args", width=28)
+        self._field(right, "Conjunto para teste", "controller_test_conjunto", width=28)
+        tk.Button(right, text="Consultar controlador (sem enviar)",
+            font=("Consolas", 9, "bold"), bg=DARK["accent"], fg="#fff",
+            relief="flat", padx=10, pady=5, cursor="hand2",
+            command=self._test_controller).pack(anchor="w", pady=6)
+        tk.Label(right, text="Defina a URL no ambiente da VM. Com o banco ativo,\n"
+            "os alertas usam os emails encontrados na consulta.",
+            font=("Consolas", 9), bg=DARK["card"], fg=DARK["text_muted"],
+            justify="left", anchor="w").pack(fill="x")
+
         self._section_label(right, "⏱  Parâmetros de Detecção")
         self._field(right, "Intervalo polling (min)",    "polling_interval",   width=8)
         self._field(right, "Janela de detecção (horas)", "dedup_window_hours", width=8)
@@ -361,54 +363,22 @@ class MonitorApp(tk.Tk):
 
     def _on_save(self):
         self._config["email_recipients"] = self._recipients_box.get("1.0", "end-1c")
+        self._config["controller_db_query"] = self._controller_query_box.get("1.0", "end-1c")
         self._save_config()
-        self._write_config_py()
+        if not self._write_config_py():
+            return
         messagebox.showinfo("Salvo", "Configurações salvas com sucesso!")
 
     def _write_config_py(self):
-        c = self._config
-        recipients_raw = c.get("email_recipients", "")
-        recipients_list = [r.strip() for r in recipients_raw.replace(",", "\n").splitlines() if r.strip()]
-        recipients_str = "\n".join(f'    "{r}",' for r in recipients_list)
-
-        content = f'''IMAP_HOST = "{c["imap_host"]}"
-IMAP_PORT = {c["imap_port"]}
-IMAP_USE_SSL = {c["imap_use_ssl"]}
-IMAP_USERNAME = "{c["imap_username"]}"
-IMAP_PASSWORD = "{c["imap_password"]}"
-IMAP_MAILBOX = "{c["imap_mailbox"]}"
-
-SMTP_HOST = "{c["smtp_host"]}"
-SMTP_PORT = {c["smtp_port"]}
-SMTP_USE_TLS = {c["smtp_use_tls"]}
-SMTP_USE_SSL = {c["smtp_use_ssl"]}
-SMTP_VERIFY_HOSTNAME = {c["smtp_verify_hostname"]}
-SMTP_VERIFY_CERT = {c["smtp_verify_cert"]}
-SMTP_USERNAME = "{c["smtp_username"]}"
-SMTP_PASSWORD = "{c["smtp_password"]}"
-EMAIL_FROM = "{c["email_from"]}"
-EMAIL_FROM_NAME = "{c["email_from_name"]}"
-
-EMAIL_RECIPIENTS = [
-{recipients_str}
-]
-
-POLLING_INTERVAL_MINUTES = {c["polling_interval"]}
-DEDUP_WINDOW_HOURS = {c["dedup_window_hours"]}
-MIN_OCCURRENCES_TO_ALERT = {c["min_occurrences"]}
-
-LOG_SUBJECT_KEYWORDS = {json.dumps([k.strip() for k in c["log_subject_keywords"].split(",") if k.strip()], ensure_ascii=False)}
-REGEX_CONJUNTO = r"{c["regex_conjunto"]}"
-REGEX_ERRO = r"{c["regex_erro"]}"
-
-LOG_FILE = "monitor.log"
-LOG_LEVEL = "INFO"
-'''
         try:
+            content = build_config_content(self._config)
             with open("config.py", "w", encoding="utf-8") as f:
                 f.write(content)
-        except Exception as e:
-            self._logger.error(f"Erro ao gerar config.py: {e}")
+            return True
+        except (ValueError, TypeError, OSError):
+            self._logger.error("Não foi possível gerar config.py. Confira números e opções de conexão.")
+            messagebox.showerror("Configuração inválida", "Confira os campos numéricos e o JSON das opções de conexão.")
+            return False
 
     def _toggle_monitor(self):
         if self._running:
@@ -418,8 +388,10 @@ LOG_LEVEL = "INFO"
 
     def _start_monitor(self):
         self._config["email_recipients"] = self._recipients_box.get("1.0", "end-1c")
+        self._config["controller_db_query"] = self._controller_query_box.get("1.0", "end-1c")
         self._save_config()
-        self._write_config_py()
+        if not self._write_config_py():
+            return
 
         self._running = True
         self._stop_event.clear()
@@ -471,74 +443,13 @@ LOG_LEVEL = "INFO"
             self.after(0, self._stop_monitor)
 
     def _run_cycle(self, cfg, tracker):
-        from imap_reader import IMAPReader
-        from parser import extract_conjunto_and_erro, extract_body, parse_raw_email
-        from alert import send_alert
+        from monitor_cycle import run_cycle
 
-        self._logger.info("Iniciando ciclo de verificação...")
+        def update_history(conjunto, erro, total, sucesso):
+            status = "✅ Enviado" if sucesso else "⏳ Pendente"
+            self.after(0, self._add_history_row, conjunto, erro, total, status)
 
-        with IMAPReader(
-            host=cfg.IMAP_HOST, port=cfg.IMAP_PORT,
-            username=cfg.IMAP_USERNAME, password=cfg.IMAP_PASSWORD,
-            use_ssl=cfg.IMAP_USE_SSL, mailbox=cfg.IMAP_MAILBOX,
-            exclude_from=getattr(cfg, "IMAP_EXCLUDE_FROM", None),
-            exclude_subject_keywords=getattr(cfg, "IMAP_EXCLUDE_SUBJECT_KEYWORDS", None),
-        ) as reader:
-            if not reader._conn:
-                self._logger.error("Falha na conexão IMAP. Pulando ciclo.")
-                return
-
-            keywords = cfg.LOG_SUBJECT_KEYWORDS if cfg.LOG_SUBJECT_KEYWORDS else None
-            emails = reader.fetch_unread(subject_keywords=keywords)
-
-            if not emails:
-                self._logger.info("Nenhum email novo para processar.")
-                return
-
-            for msg_id, raw_bytes in emails:
-                try:
-                    msg = parse_raw_email(raw_bytes)
-                    subject = str(msg.get("Subject", "(sem assunto)"))
-                    body = extract_body(msg)
-                    email_message_id = str(msg.get("Message-ID", msg_id))
-
-                    conjunto, erro = extract_conjunto_and_erro(
-                        subject=subject, body=body,
-                        regex_conjunto=cfg.REGEX_CONJUNTO,
-                        regex_erro=cfg.REGEX_ERRO,
-                    )
-
-                    deve_alertar, total = tracker.register(
-                        conjunto=conjunto, erro=erro,
-                        subject=subject, msg_id=email_message_id,
-                    )
-
-                    if deve_alertar:
-                        detalhes = tracker.get_occurrences(conjunto, erro)
-                        sucesso = send_alert(
-                            conjunto=conjunto, erro=erro,
-                            ocorrencias=total, detalhes=detalhes,
-                            recipients=cfg.EMAIL_RECIPIENTS,
-                            smtp_host=cfg.SMTP_HOST, smtp_port=cfg.SMTP_PORT,
-                            smtp_username=cfg.SMTP_USERNAME,
-                            smtp_password=cfg.SMTP_PASSWORD,
-                            email_from=cfg.EMAIL_FROM,
-                            email_from_name=cfg.EMAIL_FROM_NAME,
-                            use_tls=cfg.SMTP_USE_TLS, use_ssl=cfg.SMTP_USE_SSL,
-                            window_hours=cfg.DEDUP_WINDOW_HOURS,
-                            verify_hostname=getattr(cfg, "SMTP_VERIFY_HOSTNAME", True),
-                            verify_cert=getattr(cfg, "SMTP_VERIFY_CERT", True),
-                        )
-                        status = "✅ Enviado" if sucesso else "❌ Falha"
-                        self._logger.info(f"Alerta [{status}]: conjunto='{conjunto}' | erro='{erro}'")
-                        self.after(0, self._add_history_row,
-                            conjunto, erro, total, status)
-
-                    reader.mark_as_read(msg_id)
-                except Exception as e:
-                    self._logger.error(f"Erro ao processar email {msg_id}: {e}", exc_info=True)
-
-        self._logger.info("Ciclo finalizado.")
+        run_cycle(cfg, tracker, self._logger, on_alert=update_history)
 
     def _add_history_row(self, conjunto, erro, ocorrencias, status):
         ts = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -549,6 +460,33 @@ LOG_LEVEL = "INFO"
         self._alert_history.clear()
         for row in self._tree.get_children():
             self._tree.delete(row)
+
+    def _test_controller(self):
+        from types import SimpleNamespace
+        from controller_directory import ControllerDirectory, ControllerLookupError
+
+        try:
+            options = json.loads(self._config["controller_db_connect_args"])
+            cfg = SimpleNamespace(
+                CONTROLLER_DB_ENABLED=True,
+                CONTROLLER_DB_URL_ENV=self._config["controller_db_url_env"],
+                CONTROLLER_DB_QUERY=self._controller_query_box.get("1.0", "end-1c"),
+                CONTROLLER_DB_CONNECT_ARGS=options,
+            )
+        except ValueError:
+            messagebox.showerror("Banco", "As opções de conexão devem ser um objeto JSON.")
+            return
+        conjunto = self._config["controller_test_conjunto"].strip()
+
+        def _run():
+            try:
+                with ControllerDirectory(cfg) as directory:
+                    recipients = directory.recipients_for(conjunto)
+                self.after(0, messagebox.showinfo, "Controlador encontrado", "\n".join(recipients))
+            except ControllerLookupError as exc:
+                self._logger.error("Falha no teste do banco: %s", exc)
+                self.after(0, messagebox.showerror, "Consulta falhou", str(exc))
+        threading.Thread(target=_run, daemon=True).start()
 
     def _test_imap(self):
         def _run():

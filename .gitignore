@@ -14,3 +14,7 @@ config.py
 # Cache do Python
 __pycache__/
 *.pyc
+
+# Credenciais de ambiente e bancos locais usados para testes
+.env
+*.db

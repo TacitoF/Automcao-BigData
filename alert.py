@@ -119,6 +119,9 @@ def send_alert(
     verify_hostname: bool = True,
     verify_cert: bool = True,
 ) -> bool:
+    if not recipients:
+        logger.error("Alerta sem destinatário. Envio cancelado.")
+        return False
     subject = f"[ALERTA] Erro recorrente: {conjunto} — {erro[:60]}"
 
     msg = MIMEMultipart("alternative")
@@ -141,6 +144,7 @@ def send_alert(
     msg.attach(MIMEText(plain, "plain", "utf-8"))
     msg.attach(MIMEText(html, "html", "utf-8"))
 
+    server = None
     try:
         if use_ssl:
             context = get_legacy_context(verify_hostname=verify_hostname, verify_cert=verify_cert)
@@ -173,8 +177,10 @@ def send_alert(
                 # sem o atalho de initial response.
                 server.login(smtp_username, smtp_password, initial_response_ok=False)
 
-        server.sendmail(email_from, recipients, msg.as_string())
-        server.quit()
+        refused = server.sendmail(email_from, recipients, msg.as_string())
+        if refused:
+            logger.error("SMTP recusou %s destinatário(s). O alerta permanece pendente.", len(refused))
+            return False
 
         logger.info(f"Alerta enviado para: {recipients}")
         return True
@@ -191,5 +197,16 @@ def send_alert(
         logger.error(f"Erro SMTP ao enviar alerta: {e}")
     except Exception as e:
         logger.error(f"Erro inesperado ao enviar alerta: {e}")
+
+    finally:
+        if server is not None:
+            try:
+                server.quit()
+            except Exception:
+                # Um erro ao encerrar a sessão não desfaz um envio já aceito.
+                try:
+                    server.close()
+                except Exception:
+                    pass
 
     return False

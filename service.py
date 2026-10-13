@@ -75,77 +75,8 @@ def setup_logging(log_file: str, log_level: str) -> logging.Logger:
 
 
 def run_cycle(cfg, tracker, logger):
-    from imap_reader import IMAPReader
-    from parser import extract_conjunto_and_erro, extract_body, parse_raw_email
-    from alert import send_alert
-
-    logger.info("Iniciando ciclo de verificação...")
-
-    with IMAPReader(
-        host=cfg.IMAP_HOST, port=cfg.IMAP_PORT,
-        username=cfg.IMAP_USERNAME, password=cfg.IMAP_PASSWORD,
-        use_ssl=cfg.IMAP_USE_SSL, mailbox=cfg.IMAP_MAILBOX,
-        connect_max_retries=int(getattr(cfg, "IMAP_CONNECT_MAX_RETRIES", 3)),
-        connect_retry_delay_seconds=int(getattr(cfg, "IMAP_CONNECT_RETRY_DELAY_SECONDS", 10)),
-        exclude_from=getattr(cfg, "IMAP_EXCLUDE_FROM", None),
-        exclude_subject_keywords=getattr(cfg, "IMAP_EXCLUDE_SUBJECT_KEYWORDS", None),
-    ) as reader:
-        if not reader._conn:
-            logger.error("Falha na conexão IMAP. Pulando ciclo.")
-            return
-
-        keywords = cfg.LOG_SUBJECT_KEYWORDS if cfg.LOG_SUBJECT_KEYWORDS else None
-        emails = reader.fetch_unread(subject_keywords=keywords)
-
-        if not emails:
-            logger.info("Nenhum email novo para processar.")
-            return
-
-        for msg_id, raw_bytes in emails:
-            try:
-                msg = parse_raw_email(raw_bytes)
-                subject = str(msg.get("Subject", "(sem assunto)"))
-                body = extract_body(msg)
-                email_message_id = str(msg.get("Message-ID", msg_id))
-
-                conjunto, erro = extract_conjunto_and_erro(
-                    subject=subject, body=body,
-                    regex_conjunto=cfg.REGEX_CONJUNTO,
-                    regex_erro=cfg.REGEX_ERRO,
-                )
-
-                deve_alertar, total = tracker.register(
-                    conjunto=conjunto, erro=erro,
-                    subject=subject, msg_id=email_message_id,
-                )
-
-                if deve_alertar:
-                    detalhes = tracker.get_occurrences(conjunto, erro)
-                    sucesso = send_alert(
-                        conjunto=conjunto, erro=erro,
-                        ocorrencias=total, detalhes=detalhes,
-                        recipients=cfg.EMAIL_RECIPIENTS,
-                        smtp_host=cfg.SMTP_HOST, smtp_port=cfg.SMTP_PORT,
-                        smtp_username=cfg.SMTP_USERNAME,
-                        smtp_password=cfg.SMTP_PASSWORD,
-                        email_from=cfg.EMAIL_FROM,
-                        email_from_name=cfg.EMAIL_FROM_NAME,
-                        use_tls=cfg.SMTP_USE_TLS, use_ssl=cfg.SMTP_USE_SSL,
-                        window_hours=cfg.DEDUP_WINDOW_HOURS,
-                        verify_hostname=getattr(cfg, "SMTP_VERIFY_HOSTNAME", True),
-                        verify_cert=getattr(cfg, "SMTP_VERIFY_CERT", True),
-                    )
-                    status = "enviado com sucesso" if sucesso else "FALHOU ao enviar"
-                    logger.info(
-                        f"Alerta {status}: conjunto='{conjunto}' | erro='{erro}' | ocorrencias={total}"
-                    )
-
-                reader.mark_as_read(msg_id)
-
-            except Exception as e:
-                logger.error(f"Erro ao processar email {msg_id}: {e}", exc_info=True)
-
-    logger.info("Ciclo finalizado.")
+    from monitor_cycle import run_cycle as process_cycle
+    process_cycle(cfg, tracker, logger)
 
 
 def _interruptible_sleep(seconds: int):

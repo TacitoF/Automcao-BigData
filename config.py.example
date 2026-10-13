@@ -1,0 +1,44 @@
+"""Copie para config.py e ajuste os valores na VM (ou use a GUI)."""
+
+import os
+
+IMAP_HOST = "sogo.ati.gov.br"
+IMAP_PORT = 993
+IMAP_USE_SSL = True
+IMAP_USERNAME = os.environ.get("MONITOR_IMAP_USERNAME", "")
+IMAP_PASSWORD = os.environ.get("MONITOR_IMAP_PASSWORD", "")
+IMAP_MAILBOX = "INBOX"
+IMAP_CONNECT_MAX_RETRIES = 3
+IMAP_CONNECT_RETRY_DELAY_SECONDS = 10
+
+SMTP_HOST = "sogo.ati.gov.br"
+SMTP_PORT = 587
+SMTP_USE_TLS = True
+SMTP_USE_SSL = False
+SMTP_VERIFY_HOSTNAME = True
+SMTP_VERIFY_CERT = True
+SMTP_USERNAME = os.environ.get("MONITOR_SMTP_USERNAME", "")
+SMTP_PASSWORD = os.environ.get("MONITOR_SMTP_PASSWORD", "")
+EMAIL_FROM = SMTP_USERNAME
+EMAIL_FROM_NAME = "Monitor de Logs ATI"
+EMAIL_RECIPIENTS = []  # Usado somente com CONTROLLER_DB_ENABLED = False.
+
+CONTROLLER_DB_ENABLED = False  # Ative após validar a consulta ao banco real.
+CONTROLLER_DB_URL_ENV = "MONITOR_DATABASE_URL"
+CONTROLLER_DB_QUERY = """
+SELECT email_controlador
+FROM conjunto_controlador
+WHERE LOWER(TRIM(nome_conjunto)) = :conjunto
+"""
+# Ajuste as opções do driver, por exemplo connect_timeout no PostgreSQL.
+CONTROLLER_DB_CONNECT_ARGS = {}
+
+POLLING_INTERVAL_MINUTES = 5
+DEDUP_WINDOW_HOURS = 720
+MIN_OCCURRENCES_TO_ALERT = 2
+STATE_CLEANUP_INTERVAL_DAYS = 30
+LOG_SUBJECT_KEYWORDS = ["job de ingestão", "falhou"]
+REGEX_CONJUNTO = r"Conjunto de dados.*?:\s*[^(]+\(([^)]+)\)"
+REGEX_ERRO = r"Error:.*?(?:\s*\|\s*)([A-Za-zÀ-ÖØ-öø-ÿ ]+)"
+LOG_FILE = "monitor.log"
+LOG_LEVEL = "INFO"

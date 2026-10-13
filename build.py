@@ -2,7 +2,17 @@ import subprocess
 import sys
 import os
 import shutil
+import importlib.util
 from pathlib import Path
+
+
+def database_build_args():
+    """Inclui dialects e os drivers instalados na máquina de build."""
+    args = ["--collect-submodules", "sqlalchemy.dialects"]
+    for driver in ("pyodbc", "psycopg2", "pymysql"):
+        if importlib.util.find_spec(driver) is not None:
+            args.extend(["--collect-all", driver])
+    return args
 
 
 def check_pyinstaller():
@@ -47,6 +57,10 @@ def build_gui():
         "--add-data", f"tracker.py{sep}.",
         "--add-data", f"alert.py{sep}.",
         "--add-data", f"tls_compat.py{sep}.",
+        "--add-data", f"controller_directory.py{sep}.",
+        "--add-data", f"monitor_cycle.py{sep}.",
+        "--add-data", f"configuration.py{sep}.",
+        *database_build_args(),
         "main.py",
     ]
 
@@ -98,6 +112,10 @@ def build_service():
         "--add-data", f"tracker.py{sep}.",
         "--add-data", f"alert.py{sep}.",
         "--add-data", f"tls_compat.py{sep}.",
+        "--add-data", f"controller_directory.py{sep}.",
+        "--add-data", f"monitor_cycle.py{sep}.",
+        "--add-data", f"configuration.py{sep}.",
+        *database_build_args(),
         "service.py",
     ]
 
